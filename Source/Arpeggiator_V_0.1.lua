@@ -77,159 +77,53 @@ local function Msg(param)
 end
 
 -----------------------------------------------------------------------------------
----------------------- Functions for Saving Midi Items ----------------------------
-
-local function GetListAllMidiNotesInItem(item)
-    local activeTake = reaper.GetMediaItemTake(item, 0) -- TODO preserve all takes..
-    local listAllNotes = {} -- lua index starts at 1
+---------------------- Functions for Saving Midi ----------------------------
+local function GetListAllSelectedMidiNotesInItem(activeTake)
+    local listSelectedNotes = {} -- lua index starts at 1
     local retval = reaper.MIDI_GetNote(activeTake, 0) -- bool, check there is a 1st note in take
-    local currentNoteIdx = 0
+    local currentNoteIdx = 0 -- Reaper index starts at 0
     local midiNote
+    local selectedNoteIndex = 1 -- Lua index starts at 1
 
     while retval do
         midiNote = Note:New()
         retval, midiNote.isSelected, midiNote.isMuted,
         midiNote.startppqpos, midiNote.endppqpos, 
         midiNote.chan, midiNote.pitch, midiNote.vel = reaper.MIDI_GetNote(activeTake, currentNoteIdx)
-        -- Msg("Note "..tostring(currentNoteIdx+1).." Start pos "..midiNote.startppqpos)
+        Msg("Note "..tostring(currentNoteIdx+1).." Start pos "..midiNote.startppqpos)
         -- Msg("retval "..tostring(retval))
-        midiNote:CalculateStartAndEndInProjTime(activeTake) -- Ini note
-        listAllNotes[currentNoteIdx+1] = midiNote -- lua index starts at 1
+        if midiNote.isSelected then 
+            listSelectedNotes[selectedNoteIndex] = midiNote
+            selectedNoteIndex = selectedNoteIndex + 1
+            midiNote:InitializeNote(activeTake)
+        end
         currentNoteIdx = currentNoteIdx + 1
         retval = reaper.MIDI_GetNote(activeTake, currentNoteIdx)
     end
-    return listAllNotes
+
+    return listSelectedNotes
 end
-
-local function GetListAllCCInItem(item)
-    local listAllCC = {}
-    local takeId = 0
-    local activeTake = reaper.GetMediaItemTake(item, takeId) -- TODO preserve all takes..
-    local retval = reaper.MIDI_GetCC(activeTake, 0)
-    local currentCC_Idx = 0
-    local cc
-
-    while retval do 
-        cc = CC:New()
-        retval, cc.isSelected, cc.isMuted, cc.ppqpos, cc.chanmsg, 
-        cc.chan, cc.msg2, cc.msg3 = 
-        reaper.MIDI_GetCC(activeTake, currentCC_Idx)
-        retval, cc.shape, cc.beztension = reaper.MIDI_GetCCShape(activeTake, currentCC_Idx) -- add bezier shape and tension to cc
-        listAllCC[currentCC_Idx+1] = cc
-        cc:CalculateStartInProjTime(activeTake) -- ini CC
-        currentCC_Idx = currentCC_Idx + 1
-        retval = reaper.MIDI_GetCC(activeTake, currentCC_Idx) -- test if next cc exists
-    end
-    Msg("# of cc saved in this item : "..currentCC_Idx)
-
-    return listAllCC
-end
-
-
-
-
 
 ------------------------------------------------------------------------------------------------------
---------------------------------- Functions for Saving Quarter Notes ---------------------------------
+--------------------------------- Functions for Creating arpeggiation ---------------------------------
 
-local function SaveQuarterNotes() -- saves selected midi notes as new quarter note time-map 
-    listSelectedNotes = {}
-    
-    -- TODO check midi editor open with notes selection
+local function CreateArpeggiationInSelectedMidiItem(take) -- within time selection
+    -- bounds time selection 
+    local startTimeSelection, endTimeSelection
+    startTimeSelection, endTimeSelection = reaper.GetSet_LoopTimeRange2(
+        currentProj, false, false, -1, -1, false)
+    Msg("Start time selection : "..startTimeSelection)
+    Msg("End time selection : "..endTimeSelection)
 
-    local activeMidiEditor = reaper.MIDIEditor_GetActive()
-    local activeTake = reaper.MIDIEditor_GetTake(activeMidiEditor)
-    local retval = false
-    local noteIdx = 0
-    local selectedNoteIndex = 1
-    local note
-
-    retval = reaper.MIDI_GetNote(activeTake, 0) -- check item has notes 
-    if not retval then 
-        Msg("item is empty")
-        return false
-    end
-     
-    while retval do
-        note = Note:New()
-        retval, note.isSelected, note.isMuted, note.startppqpos, note.endppqpos, note.chan, note.pitch, note.vel = reaper.MIDI_GetNote(activeTake, noteIdx)
-        if note.isSelected then 
-            listSelectedNotes[selectedNoteIndex] = note
-            selectedNoteIndex = selectedNoteIndex + 1
-            note:CalculateStartAndEndInProjTime(activeTake)
-        end
-        noteIdx = noteIdx + 1
-    end
-    Msg("# of selected notes : "..#listSelectedNotes)
-    if #listSelectedNotes == 0 or nil then Msg("no selected notes!") return false end
-
-    return true
-end
-
-
-
-
-
--------------------------------------------------------------------------------------------------------
---------------------------------- Functions for Time-map --------------------------------------------
-
-local function GenerateTimeMap()
-    -- create list start 1st note to start 2nd note
-    timeMap = {};
-    local distanceStartToStart
-    local startLastNote
-    local timeMapIndex = 1
-    if(listSelectedNotes == nil) then 
-        Msg("No selected Quarter notes saved?!") 
+    if listSelectedNotes == nil then Msg("Please save a figure") 
     else
-        for i, n in ipairs(listSelectedNotes) do 
-            if i ~= 1 then
-                distanceStartToStart = n.startTime - startLastNote -- beat length in sec
-                timeMap[timeMapIndex] = { ["time"] = startLastNote, ["BPM"] = 60/distanceStartToStart} -- calc BPM
-                timeMapIndex = timeMapIndex + 1
-            end
-            startLastNote = listSelectedNotes[i].startTime
+        for i,n in ipairs(listSelectedNotes) do
+            -- create new notes in take, from startTime to End, repeating pattern
+            -- figure need order of notes - first note starts at 1. qn. incr and skip qn  
         end
     end
-
-    for i, timeItem in ipairs(timeMap) do 
-        Msg(i.." has time "..timeItem["time"].." and BPM "..timeItem["BPM"])
-    end
-
-    local activeMidiEditor = reaper.MIDIEditor_GetActive()
-    local activeTake = reaper.MIDIEditor_GetTake(activeMidiEditor) -- type MediaItem_Take
-    local startFirstMeasurePPQ = reaper.MIDI_GetPPQPos_EndOfMeasure(activeTake, listSelectedNotes[1].startppqpos) -- we will calculate new tempi from here..
-    local startFirstMeasureQN = reaper.MIDI_GetProjQNFromPPQPos(activeTake, startFirstMeasurePPQ)
-    timeNew = reaper.TimeMap2_QNToTime(currentProj, startFirstMeasureQN)
-    firstMeasureIndex = (reaper.TimeMap_QNToMeasures(currentProj, startFirstMeasureQN)) - 1 -- which measure QN falls in. Subtract 1 to get right index (reaper index start from 0)
-
+    -- 
 end
-
-local function SetTimeMapInProj()
-    Msg("Setting time map")
-    
-    local beat = 0
-    local measure = firstMeasureIndex
-
-    -- TODO reset BPM changes in range!
-
-    for i, timeBPM in ipairs(timeMap) do 
-        reaper.SetTempoTimeSigMarker(currentProj, -1, -1, measure, beat, timeBPM["BPM"], 0, 0, false)
-        beat = beat + 1
-
-        if beat > 3 then 
-            beat = 0
-            measure = measure + 1
-        end
-    end
-end
-
-
-
-
-
--------------------------------------------------------------------------------------------------------
---------------------------------- Functions for Creating Midi Data-------------------------------------
 
 local function CreateMidiNotesInNewItem(newMediaItem, notesList, timeOffset)
 
@@ -319,32 +213,22 @@ end
 -------------------------------------------------------------------
 
 local function OnSaveFigure_Pressed()
-    listAllItems = {}
-    local count = 0
-    local item = reaper.GetSelectedMediaItem(currentProj, count)
-
-    while item ~= nil do 
-        listAllItems[count+1] = {["Item"] = item, ["Notes"] = GetListAllMidiNotesInItem(item), ["CC"] = GetListAllCCInItem(item)}
-        count = count + 1
-        item = reaper.GetSelectedMediaItem(currentProj, count)
-    end
-    Msg("Number of midi items saved : "..count)
+    -- get selected midi notes
+    local item = reaper.GetSelectedMediaItem(currentProj, 0)
+    local activeTake = reaper.GetActiveTake(item)
+    listSelectedNotes = GetListAllSelectedMidiNotesInItem(activeTake)
+    if #listSelectedNotes == 0 or nil then Msg("no selected notes!") end
+    Msg("# of selected notes : "..#listSelectedNotes)
 end
 
-local function OnSaveQuarterNotes_Pressed()
-    Msg("Save quarter notes pressed")
-    local success = SaveQuarterNotes()
-    if success then 
-        GenerateTimeMap() -- while notes selected..
-    end
+local function OnCreateArpeggiation_Pressed()
+    Msg("Create Arpeggiation pressed")
+    local item = reaper.GetSelectedMediaItem(currentProj, 0)
+    local activeTake = reaper.GetActiveTake(item)
+    CreateArpeggiationInSelectedMidiItem()
 end
 
-local function OnCreateTimeMapAndSetMidiItems_Pressed()
-    Msg("Create Time Map and set Midi Items")
-    SetTimeMapInProj()
-    CreateNewMidiItems()
-    Msg("Done with all calculations")
-end
+
 
 
 
@@ -378,8 +262,8 @@ local function InitializeGUI()
 
 
     GUI.New("btn_SaveFigure", "Button", 1, 30, 30, 165, 24, "Save Figure", OnSaveFigure_Pressed)
-    GUI.New("btn_SaveQuarterNotes", "Button", 1, 30, 60, 165, 24, "Save Quarter Notes", OnSaveQuarterNotes_Pressed)
-    GUI.New("btn_CreateTimeMapAndSetMidiItems", "Button", 1, 30, 90, 165, 24, "Create Time-map and set midi", OnCreateTimeMapAndSetMidiItems_Pressed)
+    GUI.New("btn_CreateArpeggiation", "Button", 1, 30, 60, 165, 24, "Create Arpeggiation", OnCreateArpeggiation_Pressed)
+    
 
     -------------------------------------- INI GUI --------------------------------------------
     GUI.Init()

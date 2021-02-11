@@ -9,10 +9,12 @@ end
 
 
 Note = {
-    startTime = 0, -- sec
-    endTime = 0,
+    -- startTime = 0, -- sec
+    -- endTime = 0,
     startppqpos = 0,
     endppqpos = 0,
+    qn = 0, -- first note in figure has qn 1, then incr or skip
+    positionBetweenQN = 0, -- in fraction, 0 to 1
     chan = 0,
     pitch = 0,
     vel = 0,
@@ -28,11 +30,29 @@ function Note:New(o)
     return o
 end
 
-function Note:CalculateStartAndEndInProjTime(activeTake) -- in sec
-    self.startTime = reaper.MIDI_GetProjTimeFromPPQPos(activeTake, self.startppqpos)
-    param = "Note with start ppq "..self.startppqpos.." has time "..self.startTime
+function Note:InitializeNote(activeTake) -- in sec
+    --self.startTime = reaper.MIDI_GetProjTimeFromPPQPos(activeTake, self.startppqpos)
+    -- Msg("Note with start ppq "..self.startppqpos.." has time "..self.startTime)
     --reaper.ShowConsoleMsg(tostring(param).."\n")
-    self.endTime = reaper.MIDI_GetProjTimeFromPPQPos(activeTake, self.endppqpos)
+    --self.endTime = reaper.MIDI_GetProjTimeFromPPQPos(activeTake, self.endppqpos)
+
+    -- get ppq from previous QN 
+    -- number reaper.MIDI_GetPPQPos_EndOfMeasure(MediaItem_Take take, number ppqpos)
+    --number reaper.MIDI_GetPPQPos_StartOfMeasure(MediaItem_Take take, number ppqpos)
+    --number reaper.MIDI_GetPPQPosFromProjQN(MediaItem_Take take, number projqn)
+    
+    local qn = reaper.MIDI_GetProjQNFromPPQPos(activeTake, self.startppqpos) -- 
+    Msg("position of note relative to qn : "..qn)
+    
+    -- local previousQnPPQ = reaper.MIDI_GetPPQPosFromProjQN(activeTake, previousQn)
+    -- Msg("previous qn ppq : "..previousQnPPQ)
+    -- local nextQnPPQ = reaper.MIDI_GetPPQPosFromProjQN(activeTake, previousQn+1)
+    -- Msg("next qn ppq : "..nextQnPPQ)
+    -- local differenceBetweenQN = nextQnPPQ - previousQnPPQ
+
+    self.positionBetweenQN = math.fmod(qn,1)
+    Msg("position between qn "..self.positionBetweenQN)
+
     self.isInitialized = true
 end
 
