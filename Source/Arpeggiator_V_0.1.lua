@@ -85,6 +85,10 @@ local function GetListAllSelectedMidiNotesInItem(activeTake)
     local midiNote
     local selectedNoteIndex = 1 -- Lua index starts at 1
 
+    -- 
+    local firstQn -- set by first selected =
+    local firstNoteIsSelected = false
+
     while retval do
         midiNote = Note:New()
         retval, midiNote.isSelected, midiNote.isMuted,
@@ -96,6 +100,14 @@ local function GetListAllSelectedMidiNotesInItem(activeTake)
             listSelectedNotes[selectedNoteIndex] = midiNote
             selectedNoteIndex = selectedNoteIndex + 1
             midiNote:InitializeNote(activeTake)
+            if not firstNoteIsSelected then
+                firstQn = math.floor(midiNote.qn)
+                midiNote.qnInFigure = 0
+                firstNoteIsSelected = true
+            else
+                midiNote.qnInFigure = math.floor(midiNote.qn) -firstQn
+            end
+            Msg("Qn in figure : "..midiNote.qnInFigure)
         end
         currentNoteIdx = currentNoteIdx + 1
         retval = reaper.MIDI_GetNote(activeTake, currentNoteIdx)
@@ -111,15 +123,28 @@ local function CreateArpeggiationInSelectedMidiItem(take) -- within time selecti
     -- bounds time selection 
     local startTimeSelection, endTimeSelection
     startTimeSelection, endTimeSelection = reaper.GetSet_LoopTimeRange2(
-        currentProj, false, false, -1, -1, false)
+        currentProj, false, true, -1, -1, false)
     Msg("Start time selection : "..startTimeSelection)
     Msg("End time selection : "..endTimeSelection)
+
+    local startppqpos, endppqpos
+
+    -- calc 1st quarter note in midi item after start time selection
+    local firstQnInItem = math.ceil(reaper.TimeMap2_timeToQN(currentProj, startTimeSelection))
+    local qnPos
 
     if listSelectedNotes == nil then Msg("Please save a figure") 
     else
         for i,n in ipairs(listSelectedNotes) do
             -- create new notes in take, from startTime to End, repeating pattern
-            -- figure need order of notes - first note starts at 1. qn. incr and skip qn  
+            -- start ppq = from start timeline up to 1st qn + positionBetweenQN
+            -- can have several notes per qn
+            qnPos = firstQnInItem + n.qnInFigure + n.positionBetweenQN
+            Msg("qn Pos : "..qnPos)
+            startppqpos = reaper.MIDI_GetPPQPosFromProjQN(take, qnPos)
+            endppqpos = startppqpos + n.ppqLength
+            reaper.MIDI_InsertNote(take, n.isSelected, n.isMuted, startppqpos, 
+            endppqpos, n.chan, n.pitch, n.vel)
         end
     end
     -- 
@@ -225,7 +250,7 @@ local function OnCreateArpeggiation_Pressed()
     Msg("Create Arpeggiation pressed")
     local item = reaper.GetSelectedMediaItem(currentProj, 0)
     local activeTake = reaper.GetActiveTake(item)
-    CreateArpeggiationInSelectedMidiItem()
+    CreateArpeggiationInSelectedMidiItem(activeTake)
 end
 
 

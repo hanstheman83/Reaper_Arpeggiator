@@ -13,7 +13,9 @@ Note = {
     -- endTime = 0,
     startppqpos = 0,
     endppqpos = 0,
-    qn = 0, -- first note in figure has qn 1, then incr or skip
+    ppqLength = 0,
+    qn = 0, -- qn with fraction
+    qnInFigure = 0, -- first note in figure has qn 0, then incr or skip
     positionBetweenQN = 0, -- in fraction, 0 to 1
     chan = 0,
     pitch = 0,
@@ -41,8 +43,8 @@ function Note:InitializeNote(activeTake) -- in sec
     --number reaper.MIDI_GetPPQPos_StartOfMeasure(MediaItem_Take take, number ppqpos)
     --number reaper.MIDI_GetPPQPosFromProjQN(MediaItem_Take take, number projqn)
     
-    local qn = reaper.MIDI_GetProjQNFromPPQPos(activeTake, self.startppqpos) -- 
-    Msg("position of note relative to qn : "..qn)
+    self.qn = reaper.MIDI_GetProjQNFromPPQPos(activeTake, self.startppqpos) -- 
+    Msg("position of note relative to qn : "..self.qn)
     
     -- local previousQnPPQ = reaper.MIDI_GetPPQPosFromProjQN(activeTake, previousQn)
     -- Msg("previous qn ppq : "..previousQnPPQ)
@@ -50,21 +52,23 @@ function Note:InitializeNote(activeTake) -- in sec
     -- Msg("next qn ppq : "..nextQnPPQ)
     -- local differenceBetweenQN = nextQnPPQ - previousQnPPQ
 
-    self.positionBetweenQN = math.fmod(qn,1)
+    self.positionBetweenQN = math.fmod(self.qn,1)
     Msg("position between qn "..self.positionBetweenQN)
 
+    self.ppqLength = self.endppqpos - self.startppqpos
+    
     self.isInitialized = true
 end
 
-function Note:GetLengthInProjTime()
-    if not self.isInitialized then
-        --
-        reaper.MB("Note not initialized!","Note.lua error", 0)
-        return 0
-    end
-    return self.endTime - self.startTime
+-- function Note:GetLengthInProjTime()
+--     if not self.isInitialized then
+--         --
+--         reaper.MB("Note not initialized!","Note.lua error", 0)
+--         return 0
+--     end
+--     return self.endTime - self.startTime
     
-end
+-- end
 
 
 
