@@ -112,6 +112,7 @@ local function GetListAllSelectedMidiNotesInItem(activeTake)
         currentNoteIdx = currentNoteIdx + 1
         retval = reaper.MIDI_GetNote(activeTake, currentNoteIdx)
     end
+    listSelectedNotes[#listSelectedNotes].isLastInFigure = true
 
     return listSelectedNotes
 end
@@ -132,19 +133,34 @@ local function CreateArpeggiationInSelectedMidiItem(take) -- within time selecti
     -- calc 1st quarter note in midi item after start time selection
     local firstQnInItem = math.ceil(reaper.TimeMap2_timeToQN(currentProj, startTimeSelection))
     local qnPos
+    local stillLooping = true
 
-    if listSelectedNotes == nil then Msg("Please save a figure") 
-    else
-        for i,n in ipairs(listSelectedNotes) do
-            -- create new notes in take, from startTime to End, repeating pattern
-            -- start ppq = from start timeline up to 1st qn + positionBetweenQN
-            -- can have several notes per qn
-            qnPos = firstQnInItem + n.qnInFigure + n.positionBetweenQN
-            Msg("qn Pos : "..qnPos)
-            startppqpos = reaper.MIDI_GetPPQPosFromProjQN(take, qnPos)
-            endppqpos = startppqpos + n.ppqLength
-            reaper.MIDI_InsertNote(take, n.isSelected, n.isMuted, startppqpos, 
-            endppqpos, n.chan, n.pitch, n.vel)
+    while stillLooping do
+        if listSelectedNotes == nil then Msg("Please save a figure") 
+        else
+            for i,n in ipairs(listSelectedNotes) do
+                
+                -- start ppq = from start timeline up to 1st qn + positionBetweenQN
+                -- can have several notes per qn
+                qnPos = firstQnInItem + n.qnInFigure + n.positionBetweenQN
+                Msg("qn Pos : "..qnPos)
+                startppqpos = reaper.MIDI_GetPPQPosFromProjQN(take, qnPos)
+                endppqpos = startppqpos + n.ppqLength
+                reaper.MIDI_InsertNote(take, n.isSelected, n.isMuted, startppqpos, 
+                endppqpos, n.chan, n.pitch, n.vel)
+
+                -- last qn in finished figure + 1
+                if n.isLastInFigure then 
+                    firstQnInItem = firstQnInItem + n.qnInFigure + 1
+                    Msg("Setting new firstQnInItem : "..firstQnInItem)
+                    local startLastNoteInNextFigure = reaper.TimeMap_QNToTime(firstQnInItem + n.qnInFigure + n.positionBetweenQN)
+                    Msg("Finished a figure")
+                    if startLastNoteInNextFigure > endTimeSelection  then 
+                        -- can the next figure fit within bounds ?
+                        return -- out of bounds
+                    end 
+                end
+            end
         end
     end
     -- 
@@ -249,8 +265,12 @@ end
 local function OnCreateArpeggiation_Pressed()
     Msg("Create Arpeggiation pressed")
     local item = reaper.GetSelectedMediaItem(currentProj, 0)
-    local activeTake = reaper.GetActiveTake(item)
-    CreateArpeggiationInSelectedMidiItem(activeTake)
+    if item == nil then 
+        Msg("You need to select a midi item")
+    else 
+        local activeTake = reaper.GetActiveTake(item)
+        CreateArpeggiationInSelectedMidiItem(activeTake)
+    end
 end
 
 

@@ -22,7 +22,8 @@ Note = {
     vel = 0,
     isMuted = false,
     isSelected = false,
-    isInitialized = false
+    isInitialized = false,
+    isLastInFigure = false
 }
 
 function Note:New(o)
