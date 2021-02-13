@@ -166,84 +166,47 @@ local function CreateArpeggiationInSelectedMidiItem(take) -- within time selecti
     -- 
 end
 
-local function CreateMidiNotesInNewItem(newMediaItem, notesList, timeOffset)
+local function ChangeSelectedNotesToSavedFigure()
+    local item = reaper.GetSelectedMediaItem(currentProj, 0)
+    local activeTake = reaper.GetActiveTake(item)
+    -- loop through all selected notes
+    local noteIdx = -1 -- 
+    local isDone = false
+    local note
+    local retVal = false
 
-    local take = reaper.GetMediaItemTake(newMediaItem, 0)
-    local startppqpos, endppqpos
-    
-    for i,n in ipairs(notesList) do 
-        startppqpos = reaper.MIDI_GetPPQPosFromProjTime(take, n.startTime + timeOffset)
-        endppqpos = reaper.MIDI_GetPPQPosFromProjTime(take, n.endTime + timeOffset)
-        reaper.MIDI_InsertNote(take, n.isSelected, n.isMuted, startppqpos, 
-            endppqpos, n.chan, n.pitch, n.vel)
-    end
-end
+    local figureListActiveIndex = 1 -- 
 
-local function CreateCC_DataInNewItem(newMediaItem, ccList, timeOffset)
-    -- add shape : Lua: boolean reaper.MIDI_SetCCShape(MediaItem_Take take, integer ccidx, integer shape, number beztension, optional boolean noSortIn)
-    -- respect bounds of media item
-    local take = reaper.GetMediaItemTake(newMediaItem, 0)
-    local ppqpos
-    local wasInserted, shapeWasSet
-    local itemStartTime = reaper.GetMediaItemInfo_Value(newMediaItem, "D_POSITION")
-    local itemEndTime = itemStartTime + reaper.GetMediaItemInfo_Value(newMediaItem, "D_LENGTH")
-    Msg("item start time : "..itemStartTime) -- in sec
-    for i, cc in ipairs(ccList) do 
-        -- insert from start item
-        if(cc.startTime + timeOffset < itemEndTime) then -- also sets cc out of bounds. Neccessary to later set shape.
-            ppqpos = reaper.MIDI_GetPPQPosFromProjTime(take, cc.startTime + timeOffset)
-            wasInserted = reaper.MIDI_InsertCC(take, cc.isSelected, cc.isMuted, ppqpos, cc.chanmsg,
-                cc.chan, cc.msg2, cc.msg3)
-            --Msg("cc "..i.." inserted : "..helper.BoolToString(wasInserted)) -- inserts also before clip starts!
+
+    while not isDone do 
+        noteIdx = reaper.MIDI_EnumSelNotes(activeTake, noteIdx)
+        Msg("selected : "..noteIdx)
+        if noteIdx == -1 then 
+            isDone = true 
+        else 
+            -- save selected note
+            note = Note:New()
+            retval, note.selected, note.muted, note.startppqpos, note.endppqpos, note.chan, 
+                note.pitch, note.vel =  reaper.MIDI_GetNote(activeTake, noteIdx)
+            -- set note, change pitch and vel
+            reaper.MIDI_SetNote(activeTake, noteIdx, true, note.muted, note.startppqpos, note.endppqpos, note.chan, 
+                listSelectedNotes[figureListActiveIndex].pitch, 
+                listSelectedNotes[figureListActiveIndex].vel, false) -- TODO what is no sort in ???
+
+            -- update figureListActiveIndex
+            figureListActiveIndex = figureListActiveIndex + 1
+            if figureListActiveIndex > #listSelectedNotes then 
+                figureListActiveIndex = 1
+            end
         end
+        
     end
-    -- set shape
-    Msg("Setting Shape")
-    for i, cc in ipairs(ccList) do 
-        if(cc.startTime + timeOffset > itemStartTime and cc.startTime + timeOffset < itemEndTime) then
-            shapeWasSet = reaper.MIDI_SetCCShape(take, i-1, cc.shape, cc.beztension)
-            -- Msg("cc "..i.." cc shape set : "..helper.BoolToString(shapeWasSet)) -- inserts also before clip starts!
-        end
-    end
-    Msg("End CreateCC")
+    reaper.MIDI_Sort(activeTake)
+    -- only change pitch
+
 end
 
-local function CreateNewMidiItems()
-    Msg("Creating new midi items")
-    local track
-    local itemWasDeleted
-    local item
-    local notesList
-    local ccList
-    local timeZero = listSelectedNotes[1].startTime -- time of 1st quarter note in sec
-    -- ini 
 
-    local endNewMediaItem
-
-    local fallInForCC = 1 -- 1 sec earlier than first note start cc data
-    local tail = 1 -- 1 sec tail for cc data
-
-    local timeOffset = timeNew - timeZero -- add this to all new created notes
-    -- ignore items when cc and notes < start 1st bar in timeMap. CC will ramp up and down.
-    Msg("time new : "..timeNew)
-    Msg("time zero : "..timeZero)
-
-    
-    for i, object in ipairs(listAllItems) do 
-        item = object["Item"]
-        track = reaper.GetMediaItem_Track(item)
-        itemWasDeleted = reaper.DeleteTrackMediaItem(track, item)
-        -- creating new items 
-        if itemWasDeleted then Msg("An item was deleted") end
-        notesList = object["Notes"]
-        ccList = object["CC"]
-        endNewMediaItem = notesList[#notesList].endTime + timeOffset
-        Msg("creating new midi item")
-        item = reaper.CreateNewMIDIItemInProj(track, timeNew - fallInForCC, endNewMediaItem + tail, false)
-        CreateMidiNotesInNewItem(item, notesList, timeOffset)
-        CreateCC_DataInNewItem(item, ccList, timeOffset)
-    end
-end
 
 
 
@@ -271,6 +234,12 @@ local function OnCreateArpeggiation_Pressed()
         local activeTake = reaper.GetActiveTake(item)
         CreateArpeggiationInSelectedMidiItem(activeTake)
     end
+end
+
+local function OnChangeArpeggiation_Pressed()
+    Msg("On Change Arp pressed")
+    -- TODO save slots
+    ChangeSelectedNotesToSavedFigure()
 end
 
 
@@ -308,6 +277,7 @@ local function InitializeGUI()
 
     GUI.New("btn_SaveFigure", "Button", 1, 30, 30, 165, 24, "Save Figure", OnSaveFigure_Pressed)
     GUI.New("btn_CreateArpeggiation", "Button", 1, 30, 60, 165, 24, "Create Arpeggiation", OnCreateArpeggiation_Pressed)
+    GUI.New("btn_ChangeArpeggiation", "Button", 1, 30, 90, 165, 24, "Change Arpeggiation", OnChangeArpeggiation_Pressed)
     
 
     -------------------------------------- INI GUI --------------------------------------------
