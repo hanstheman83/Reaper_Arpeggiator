@@ -3,7 +3,6 @@ local function Msg(param)
 end
 
 CC = {
-    startTime = 0, -- 
     ppqpos = 0,
     chanmsg = 0,
     chan = 0,
@@ -13,7 +12,9 @@ CC = {
     isSelected = false,
     isInitialized = false,
     shape = 0,
-    beztension = 0
+    beztension = 0,
+    qnInFigure = -1,
+    positionBetweenQN = 0
 }
 
 function CC:New(o)
@@ -23,7 +24,9 @@ function CC:New(o)
     return o
 end
 
-function CC:CalculateStartInProjTime(activeTake)
-    self.startTime = reaper.MIDI_GetProjTimeFromPPQPos(activeTake, self.ppqpos)
+function CC:Ini(activeTake, qnFirst)
+    self.qnInFigure = math.floor(reaper.MIDI_GetProjQNFromPPQPos(activeTake, self.ppqpos) ) - qnFirst -- close to 0 and - # ???
+    self.positionBetweenQN = math.fmod(reaper.MIDI_GetProjQNFromPPQPos(activeTake, self.ppqpos),1)
     self.isInitialized = true
+    
 end

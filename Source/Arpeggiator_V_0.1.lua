@@ -58,6 +58,10 @@ local timeMap
 local listSelectedNotes 
 -- index = { note }
 
+local listSelectedCC
+-- index = { ["easeIn"] = {cc}, 
+--     ["figure"] = {cc}, ["easeOut"] = {cc} }
+
 local listAllItems 
 -- index = {["Item"] = item, ["Notes"] = notesList, ["CC"] = CCList}
 
@@ -79,7 +83,7 @@ end
 -----------------------------------------------------------------------------------
 ---------------------- Functions for Saving Midi ----------------------------
 local function GetListAllSelectedMidiNotesInItem(activeTake)
-    local listSelectedNotes = {} -- lua index starts at 1
+    local listNotes = {} -- lua index starts at 1
     local retval = reaper.MIDI_GetNote(activeTake, 0) -- bool, check there is a 1st note in take
     local currentNoteIdx = 0 -- Reaper index starts at 0
     local midiNote
@@ -97,7 +101,7 @@ local function GetListAllSelectedMidiNotesInItem(activeTake)
         Msg("Note "..tostring(currentNoteIdx+1).." Start pos "..midiNote.startppqpos)
         -- Msg("retval "..tostring(retval))
         if midiNote.isSelected then 
-            listSelectedNotes[selectedNoteIndex] = midiNote
+            listNotes[selectedNoteIndex] = midiNote
             selectedNoteIndex = selectedNoteIndex + 1
             midiNote:InitializeNote(activeTake)
             if not firstNoteIsSelected then
@@ -112,15 +116,113 @@ local function GetListAllSelectedMidiNotesInItem(activeTake)
         currentNoteIdx = currentNoteIdx + 1
         retval = reaper.MIDI_GetNote(activeTake, currentNoteIdx)
     end
-    listSelectedNotes[#listSelectedNotes].isLastInFigure = true
+    listNotes[#listNotes].isLastInFigure = true
 
-    return listSelectedNotes
+    return listNotes
+end
+
+local function GetListSelectedCCFromNotes(activeTake, qnFirst, qnLast) -- qnZero is qn position of 1st note in figure
+    -- save all cc from first to last note (create ppq range)
+    local listEaseInCC = {}
+    local listFigureCC = {}
+    local listEaseOutCC = {}
+    local easeInIndex = 1 -- Lua index
+    local figureIndex = 1 -- Lua index
+    local easeOutIndex = 1 -- Lua index
+
+    -- Bounds
+    local firstQnPPQ = reaper.MIDI_GetPPQPosFromProjQN(activeTake, qnFirst) 
+    local lastQnPPQ = reaper.MIDI_GetPPQPosFromProjQN(activeTake, qnLast) 
+    local easeInOutPPQ = 300
+
+    local retval = reaper.MIDI_GetCC(activeTake, 0) -- looping from first cc in item
+    local currentCC_Idx = 0
+    local cc
+
+    while retval do 
+        cc = CC:New()
+        retval, cc.isSelected, cc.isMuted, cc.ppqpos, cc.chanmsg, 
+            cc.chan, cc.msg2, cc.msg3 = 
+            reaper.MIDI_GetCC(activeTake, currentCC_Idx)
+        retval, cc.shape, cc.beztension = reaper.MIDI_GetCCShape(activeTake, currentCC_Idx) -- add bezier shape and tension to cc
+        
+        cc.Ini(activeTake, qnFirst)
+        
+        if cc.ppqpos > firstQnPPQ - easeInOut and cc.ppqpos < firstQnPPQ then -- ease in CC data 
+            listEaseInCC[easeInIndex] = cc
+            easeInIndex = easeInIndex + 1
+        else if cc.ppqpos >= firstQnPPQ and cc.ppqpos <= lastQnPPQ then -- figure
+            listFigureCC[figureIndex] = cc
+            figureIndex = figureIndex + 1
+        else if cc.ppqpos > lastQnPPQ and cc.ppqpos < lastQnPPQ + easeInOutPPQ then -- ease out
+            listEaseOutCC[easeOutIndex] = cc
+            easeOutIndex = easeOutIndex + 1
+        end
+        currentCC_Idx = currentCC_Idx + 1
+        retval = reaper.MIDI_GetCC(activeTake, currentCC_Idx) -- test if next cc exists
+    end
+
+    return { ["easeIn"] = listEaseInCC, ["figure"] = listFigureCC, ["easeOut"] = listEaseOutCC }
 end
 
 ------------------------------------------------------------------------------------------------------
 --------------------------------- Functions for Creating arpeggiation ---------------------------------
+local function CreateCCArpeggiationInSelectedFigure(activeTake)
+    -- bounds time selection 
+    local startTimeSelection, endTimeSelection
+    startTimeSelection, endTimeSelection = reaper.GetSet_LoopTimeRange2(
+        currentProj, false, true, -1, -1, false)
+    local ppqpos
+    -- calc 1st quarter note in midi item after start time selection
+    local firstQnInItem = math.ceil(reaper.TimeMap2_timeToQN(currentProj, startTimeSelection))
+    local qnPos
+    local stillLooping = true
+    
+    if listSelectedCC == nil then 
+        Msg("Please save CC data") 
+    else
+        for i, cc in ipairs(listSelectedCC["easeIn"]) do -- easeIn   
 
-local function CreateArpeggiationInSelectedMidiItem(take) -- within time selection
+        end
+
+        while stillLooping do -- figure loop
+            for i,cc in ipairs(listSelectedCC["figure"]) do
+                qnPos = firstQnInItem + cc.qnInFigure + cc.positionBetweenQN
+                Msg("qn Pos : "..qnPos)
+                startppqpos = reaper.MIDI_GetPPQPosFromProjQN(take, qnPos)
+                endppqpos = startppqpos + n.ppqLength
+                reaper.MIDI_InsertNote(take, n.isSelected, n.isMuted, startppqpos, 
+                endppqpos, n.chan, n.pitch, n.vel)
+
+                if i == #listSelectedCC["figure"] then -- last cc in list, then repeat
+                    firstQnInItem = firstQnInItem + cc.qnInFigure + 1
+                    Msg("Setting new firstQnInItem : "..firstQnInItem)
+                    local startLastCCInNextFigure = reaper.TimeMap_QNToTime(firstQnInItem + n.qnInFigure + cc.positionBetweenQN)
+                    Msg("Finished a figure")
+                    if startLastCCInNextFigure > endTimeSelection  then 
+                        -- can the next figure fit within bounds ?
+                        stillLooping = false -- out of bounds
+                    end 
+                end
+            end
+        end
+        -- easeOut
+
+    end
+
+
+    for i, cc in ipairs(listSelectedCC) do 
+        ppqpos = reaper.MIDI_GetPPQPosFromProjQN(activeTake, (cc.qnInFigure + cc.positionBetweenQN))
+        reaper.MIDI_InsertCC(activeTake, cc.isSelected, cc.isMuted, ppqpos, cc.chanmsg, cc.chan, cc.msg2, cc.msg3)
+    end
+    -- TODO need to change to correct shape
+
+end
+
+
+
+
+local function CreateNoteArpeggiationInSelectedFigure(take) -- within time selection
     -- bounds time selection 
     local startTimeSelection, endTimeSelection
     startTimeSelection, endTimeSelection = reaper.GetSet_LoopTimeRange2(
@@ -138,8 +240,8 @@ local function CreateArpeggiationInSelectedMidiItem(take) -- within time selecti
     while stillLooping do
         if listSelectedNotes == nil then Msg("Please save a figure") 
         else
+            -- creating notes
             for i,n in ipairs(listSelectedNotes) do
-                
                 -- start ppq = from start timeline up to 1st qn + positionBetweenQN
                 -- can have several notes per qn
                 qnPos = firstQnInItem + n.qnInFigure + n.positionBetweenQN
@@ -161,6 +263,10 @@ local function CreateArpeggiationInSelectedMidiItem(take) -- within time selecti
                     end 
                 end
             end
+            
+
+
+
         end
     end
     -- 
@@ -221,8 +327,16 @@ local function OnSaveFigure_Pressed()
     local item = reaper.GetSelectedMediaItem(currentProj, 0)
     local activeTake = reaper.GetActiveTake(item)
     listSelectedNotes = GetListAllSelectedMidiNotesInItem(activeTake)
-    if #listSelectedNotes == 0 or nil then Msg("no selected notes!") end
-    Msg("# of selected notes : "..#listSelectedNotes)
+    if #listSelectedNotes == 0 or nil then 
+        Msg("no selected notes!") 
+    else
+        Msg("# of selected notes : "..#listSelectedNotes)
+        -- get selected cc data
+        local qnFirst = math.floor(listSelectedNotes[1].qn)
+        local qnLast = math.ceil(listSelectedNotes[#listSelectedNotes].qn)
+        listSelectedCC = GetListSelectedCCFromNotes(activeTake, qnFirst, qnLast)
+    end
+
 end
 
 local function OnCreateArpeggiation_Pressed()
@@ -232,11 +346,12 @@ local function OnCreateArpeggiation_Pressed()
         Msg("You need to select a midi item")
     else 
         local activeTake = reaper.GetActiveTake(item)
-        CreateArpeggiationInSelectedMidiItem(activeTake)
+        CreateNoteArpeggiationInSelectedFigure(activeTake)
+        CreateCCArpeggiationInSelectedFigure(activeTake)
     end
 end
 
-local function OnChangeArpeggiation_Pressed()
+local function OnChangeArpeggiation_Pressed() -- changes pitch and vel
     Msg("On Change Arp pressed")
     -- TODO save slots
     ChangeSelectedNotesToSavedFigure()
